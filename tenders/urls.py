@@ -2,7 +2,7 @@
 
 from django.urls import path
 from .views import (
-    TenderListCreateView, TenderDetailView, NextTenderNumberView,
+    AcceptBidView, TenderListCreateView, TenderDetailView, NextTenderNumberView,
     PredictQualityView, TenderBidListCreateView, TenderBidDetailView,
     TenderBidsView
 )
@@ -18,4 +18,5 @@ urlpatterns = [
     # Bid endpoints
     path('bids/', TenderBidListCreateView.as_view(), name='bid-list-create'),
     path('bids/<int:pk>/', TenderBidDetailView.as_view(), name='bid-detail'),
+    path('bids/<int:bid_id>/accept/', AcceptBidView.as_view(), name='accept-bid'),
 ]

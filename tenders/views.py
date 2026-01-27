@@ -259,3 +259,74 @@ class TenderBidsView(generics.ListAPIView):
         
         # Buyers cannot see other buyers' bids
         return TenderBid.objects.none()
+
+
+class AcceptBidView(APIView):
+    """
+    Accept a bid and reject all other bids for the same tender
+    Only manufacturer who owns the tender can accept bids
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request, bid_id):
+        user = request.user
+        
+        # Only manufacturers can accept bids
+        if user.role != 'manufacturer':
+            return Response(
+                {'error': 'Only manufacturers can accept bids.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            # Get the bid
+            bid = TenderBid.objects.select_related('tender').get(id=bid_id)
+            
+            # Check if the manufacturer owns this tender
+            if bid.tender.manufacturer != user:
+                return Response(
+                    {'error': 'You can only accept bids on your own tenders.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Check if bid is already accepted or rejected
+            if bid.status != 'pending':
+                return Response(
+                    {'error': f'This bid is already {bid.status}.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if tender closing date has passed
+            from django.utils import timezone
+            if bid.tender.end_date >= timezone.now().date():
+                return Response(
+                    {'error': 'Cannot accept bids before tender closing date.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Accept this bid
+            bid.status = 'accepted'
+            bid.save()
+            
+            # Reject all other pending bids for this tender
+            TenderBid.objects.filter(
+                tender=bid.tender
+            ).exclude(
+                id=bid_id
+            ).update(status='rejected')
+            
+            # Update tender status to closed
+            bid.tender.status = 'closed'
+            bid.tender.save()
+            
+            return Response({
+                'message': 'Bid accepted successfully.',
+                'bid_id': bid.id,
+                'tender_id': bid.tender.id
+            }, status=status.HTTP_200_OK)
+            
+        except TenderBid.DoesNotExist:
+            return Response(
+                {'error': 'Bid not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )

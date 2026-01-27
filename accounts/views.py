@@ -13,61 +13,95 @@ from .serializers import UserRegistrationSerializer, UserSerializer, LoginSerial
 class RegisterView(generics.CreateAPIView):
     """
     API endpoint for user registration
+    ✅ AllowAny permission - no authentication required
     """
     queryset = User.objects.all()
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny]  # ✅ Important!
     serializer_class = UserRegistrationSerializer
+    authentication_classes = []  # ✅ Explicitly disable authentication
     
     def create(self, request, *args, **kwargs):
-        print("Registration data received:", request.data)  # Debug print
+        print("=" * 50)
+        print("Registration request received")
+        print("Data:", request.data)
+        print("=" * 50)
+        
         serializer = self.get_serializer(data=request.data)
         
         if not serializer.is_valid():
-            print("Validation errors:", serializer.errors)  # Debug print
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            print("Validation errors:", serializer.errors)
+            return Response(
+                serializer.errors, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
+        # Create the user
         user = serializer.save()
+        print(f"User created successfully: {user.username}")
         
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
         
-        return Response({
+        response_data = {
             'user': UserSerializer(user).data,
             'refresh': str(refresh),
             'access': str(refresh.access_token),
             'message': 'User registered successfully!'
-        }, status=status.HTTP_201_CREATED)
+        }
+        
+        print("Registration successful, sending response")
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 class LoginView(APIView):
     """
     API endpoint for user login
+    ✅ AllowAny permission - no authentication required
     """
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny]  # ✅ Important!
+    authentication_classes = []  # ✅ Explicitly disable authentication
     serializer_class = LoginSerializer
     
     def post(self, request):
+        print("=" * 50)
+        print("Login request received")
+        print("Data:", request.data)
+        print("=" * 50)
+        
         serializer = LoginSerializer(data=request.data)
         
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            print("Validation errors:", serializer.errors)
+            return Response(
+                serializer.errors, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         username = serializer.validated_data['username']
         password = serializer.validated_data['password']
         
+        print(f"Attempting to authenticate user: {username}")
+        
+        # Authenticate user
         user = authenticate(username=username, password=password)
         
         if user is not None:
+            print(f"Authentication successful for: {username}")
+            
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
             
-            return Response({
+            response_data = {
                 'user': UserSerializer(user).data,
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
                 'message': 'Login successful!'
-            }, status=status.HTTP_200_OK)
+            }
+            
+            return Response(response_data, status=status.HTTP_200_OK)
         else:
+            print(f"Authentication failed for: {username}")
+            
             # Check if user exists
             if User.objects.filter(username=username).exists():
                 return Response({
@@ -82,6 +116,7 @@ class LoginView(APIView):
 class UserProfileView(generics.RetrieveAPIView):
     """
     API endpoint to get current user profile
+    ✅ IsAuthenticated required
     """
     permission_classes = [IsAuthenticated]
     serializer_class = UserSerializer
@@ -93,18 +128,29 @@ class UserProfileView(generics.RetrieveAPIView):
 class LogoutView(APIView):
     """
     API endpoint for user logout
+    ✅ IsAuthenticated required
     """
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
         try:
             refresh_token = request.data.get("refresh_token")
+            
+            if not refresh_token:
+                return Response({
+                    'error': 'Refresh token is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Blacklist the refresh token
             token = RefreshToken(refresh_token)
             token.blacklist()
+            
             return Response({
                 'message': 'Logout successful!'
             }, status=status.HTTP_205_RESET_CONTENT)
+            
         except Exception as e:
+            print(f"Logout error: {str(e)}")
             return Response({
-                'error': 'Invalid token'
+                'error': 'Invalid token or token already blacklisted'
             }, status=status.HTTP_400_BAD_REQUEST)
