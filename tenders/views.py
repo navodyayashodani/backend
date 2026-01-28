@@ -5,6 +5,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
+from django.db import transaction
+from django.utils import timezone
 from .models import Tender, TenderBid
 from .serializers import (
     TenderSerializer, TenderCreateSerializer, TenderBidSerializer
@@ -220,7 +222,8 @@ class TenderBidListCreateView(generics.ListCreateAPIView):
 class TenderBidDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update or delete a bid
-    Buyers can only access their own bids
+    Buyers can update their own bids (amount/message)
+    Manufacturers can update bid status (accept/reject)
     """
     serializer_class = TenderBidSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -228,6 +231,7 @@ class TenderBidDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         """
         Buyers can only access their own bids
+        Manufacturers can see bids on their tenders
         """
         user = self.request.user
         if user.role == 'buyer':
@@ -236,6 +240,100 @@ class TenderBidDetailView(generics.RetrieveUpdateDestroyAPIView):
             # Manufacturers can see bids on their tenders
             return TenderBid.objects.filter(tender__manufacturer=user)
         return TenderBid.objects.none()
+    
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        """
+        Override update to handle:
+        1. Buyers updating their own bid amount/message
+        2. Manufacturers accepting/rejecting bids
+        """
+        user = request.user
+        bid = self.get_object()
+        
+        # Check if updating status to 'accepted' or 'rejected'
+        new_status = request.data.get('status')
+        
+        # If status is being changed, only manufacturer can do it
+        if new_status and new_status != bid.status:
+            if user.role != 'manufacturer':
+                return Response(
+                    {'error': 'Only manufacturers can update bid status'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        # If buyer is updating their own bid (amount/message only)
+        if user.role == 'buyer':
+            # Buyers can only update bid_amount and message, not status
+            if new_status:
+                return Response(
+                    {'error': 'Buyers cannot change bid status'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Check if bid is still pending
+            if bid.status != 'pending':
+                return Response(
+                    {'error': f'Cannot update a {bid.status} bid'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Allow buyers to update only bid_amount and message
+            allowed_fields = {'bid_amount', 'message'}
+            update_fields = set(request.data.keys())
+            
+            if not update_fields.issubset(allowed_fields):
+                return Response(
+                    {'error': f'Buyers can only update: {", ".join(allowed_fields)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Perform the update
+            return super().update(request, *args, **kwargs)
+        
+        # Manufacturer accepting a bid
+        if new_status == 'accepted':
+            # ✅ Check if tender closing date has passed
+            if bid.tender.end_date > timezone.now().date():
+                return Response(
+                    {'error': 'Cannot accept bids before tender closing date. Please wait until the tender closes.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if another bid is already accepted for this tender
+            existing_accepted = TenderBid.objects.filter(
+                tender=bid.tender,
+                status='accepted'
+            ).exclude(id=bid.id).exists()
+            
+            if existing_accepted:
+                return Response(
+                    {'error': 'A bid has already been accepted for this tender'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Accept this bid
+            bid.status = 'accepted'
+            bid.save()
+            
+            # Reject all other pending bids on this tender
+            rejected_count = TenderBid.objects.filter(
+                tender=bid.tender,
+                status='pending'
+            ).exclude(id=bid.id).update(status='rejected')
+            
+            # Close the tender
+            tender = bid.tender
+            tender.status = 'closed'
+            tender.save()
+            
+            return Response({
+                'message': f'Bid accepted successfully. {rejected_count} other bids rejected and tender closed.',
+                'bid': TenderBidSerializer(bid).data
+            })
+        
+        # For other updates, use the standard update method
+        return super().update(request, *args, **kwargs)
 
 
 class TenderBidsView(generics.ListAPIView):
@@ -265,9 +363,11 @@ class AcceptBidView(APIView):
     """
     Accept a bid and reject all other bids for the same tender
     Only manufacturer who owns the tender can accept bids
+    Can only accept bids AFTER tender closing date has passed
     """
     permission_classes = [permissions.IsAuthenticated]
     
+    @transaction.atomic
     def post(self, request, bid_id):
         user = request.user
         
@@ -289,6 +389,15 @@ class AcceptBidView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
             
+            # ✅ FIXED: Check if tender closing date has passed
+            # Current date must be AFTER or EQUAL to end_date
+            # Use > instead of >= to allow acceptance on the closing date
+            if bid.tender.end_date > timezone.now().date():
+                return Response(
+                    {'error': 'Cannot accept bids before tender closing date. The tender must be closed first.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             # Check if bid is already accepted or rejected
             if bid.status != 'pending':
                 return Response(
@@ -296,11 +405,15 @@ class AcceptBidView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Check if tender closing date has passed
-            from django.utils import timezone
-            if bid.tender.end_date >= timezone.now().date():
+            # Check if another bid is already accepted
+            existing_accepted = TenderBid.objects.filter(
+                tender=bid.tender,
+                status='accepted'
+            ).exists()
+            
+            if existing_accepted:
                 return Response(
-                    {'error': 'Cannot accept bids before tender closing date.'},
+                    {'error': 'A bid has already been accepted for this tender.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -309,20 +422,23 @@ class AcceptBidView(APIView):
             bid.save()
             
             # Reject all other pending bids for this tender
-            TenderBid.objects.filter(
-                tender=bid.tender
+            rejected_count = TenderBid.objects.filter(
+                tender=bid.tender,
+                status='pending'
             ).exclude(
                 id=bid_id
             ).update(status='rejected')
             
             # Update tender status to closed
-            bid.tender.status = 'closed'
-            bid.tender.save()
+            tender = bid.tender
+            tender.status = 'closed'
+            tender.save()
             
             return Response({
                 'message': 'Bid accepted successfully.',
-                'bid_id': bid.id,
-                'tender_id': bid.tender.id
+                'rejected_bids_count': rejected_count,
+                'bid': TenderBidSerializer(bid).data,
+                'tender_status': tender.status
             }, status=status.HTTP_200_OK)
             
         except TenderBid.DoesNotExist:
