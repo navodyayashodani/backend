@@ -1,4 +1,10 @@
 # tenders/views.py
+# Add this import at the top
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.permissions import AllowAny, IsAuthenticated
+import tempfile
+import os
+
 
 from rest_framework import status, generics, permissions
 from rest_framework.response import Response
@@ -446,3 +452,57 @@ class AcceptBidView(APIView):
                 {'error': 'Bid not found.'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+
+    # Add this new view class
+class BatchPredictQualityView(APIView):
+    """
+    Batch predict quality from multiple uploaded files
+    """
+    parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [IsAuthenticated]  # ← FIXED: Changed from AllowAny
+    
+    def post(self, request):
+        files = request.FILES.getlist('files')
+        
+        if not files:
+            return Response(
+                {'error': 'No files provided'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        predictor = get_predictor()
+        all_results = []
+        
+        for uploaded_file in files:
+            file_extension = uploaded_file.name.split('.')[-1].lower()
+            
+            if file_extension not in ['jpg', 'jpeg', 'png', 'pdf']:
+                all_results.append({
+                    'filename': uploaded_file.name,
+                    'status': 'error',
+                    'message': 'Invalid file type'
+                })
+                continue
+            
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
+                    for chunk in uploaded_file.chunks():
+                        temp_file.write(chunk)
+                    temp_path = temp_file.name
+                
+                result = predictor.predict_quality(temp_path)
+                result['filename'] = uploaded_file.name
+                result['status'] = 'success'
+                all_results.append(result)
+                
+                os.remove(temp_path)
+                
+            except Exception as e:
+                all_results.append({
+                    'filename': uploaded_file.name,
+                    'status': 'error',
+                    'message': str(e)
+                })
+        
+        return Response({'results': all_results}, status=status.HTTP_200_OK)
