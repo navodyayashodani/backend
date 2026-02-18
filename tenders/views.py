@@ -7,6 +7,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.utils import timezone
+from django.db.models import Q
 from .models import Tender, TenderBid
 from .serializers import (
     TenderSerializer, TenderCreateSerializer, TenderBidSerializer
@@ -15,16 +16,40 @@ from .ml_model import get_predictor
 
 
 class TenderListCreateView(generics.ListCreateAPIView):
-    """List all tenders or create a new tender."""
-    serializer_class    = TenderSerializer
-    permission_classes  = [permissions.IsAuthenticated]
-    parser_classes      = [MultiPartParser, FormParser]
+    """
+    List all tenders or create a new tender.
+
+    GET  → manufacturers see:
+             • ALL of their own tenders (any status)
+             • Other manufacturers' tenders only when:
+               - end_date has passed  (bidding period over)  OR
+               - status == 'closed'   (winner already selected)
+           buyers see everything.
+
+    POST → manufacturers only.
+    """
+    serializer_class   = TenderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes     = [MultiPartParser, FormParser]
 
     def get_queryset(self):
         user = self.request.user
+
         if user.role == 'manufacturer':
-            return Tender.objects.filter(manufacturer=user)
-        return Tender.objects.all()
+            today = timezone.now().date()
+            return (
+                Tender.objects
+                # Own tenders — always visible
+                .filter(manufacturer=user)
+                |
+                # Other manufacturers' tenders — only after closing date or if closed
+                Tender.objects
+                .exclude(manufacturer=user)
+                .filter(Q(end_date__lt=today) | Q(status='closed'))
+            ).distinct().order_by('-created_at')
+
+        # Buyers (and any other role) see everything
+        return Tender.objects.all().order_by('-created_at')
 
     def perform_create(self, serializer):
         if self.request.user.role != 'manufacturer':
@@ -32,7 +57,7 @@ class TenderListCreateView(generics.ListCreateAPIView):
 
         tender = serializer.save(manufacturer=self.request.user)
 
-        # ── ML prediction on uploaded report
+        # ── ML prediction on uploaded report ──
         if tender.report_file:
             try:
                 predictor = get_predictor()
@@ -55,6 +80,7 @@ class TenderDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         user = self.request.user
         if user.role == 'manufacturer':
+            # Can only edit/delete own tenders
             return Tender.objects.filter(manufacturer=user)
         return Tender.objects.all()
 
@@ -124,8 +150,6 @@ class PredictQualityView(APIView):
                 'quality_grade': result['grade'],
                 'quality_score': result['score'],
                 'confidence':    result.get('confidence', 0),
-                # ── NEW: return extracted chemical features so the
-                #    frontend can display what the OCR found
                 'features':      result.get('features', {}),
                 'message': (
                     f"Quality Grade: {result['grade']} "
@@ -185,8 +209,8 @@ class TenderBidDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     @transaction.atomic
     def update(self, request, *args, **kwargs):
-        user      = request.user
-        bid       = self.get_object()
+        user       = request.user
+        bid        = self.get_object()
         new_status = request.data.get('status')
 
         if new_status and new_status != bid.status:
@@ -196,25 +220,41 @@ class TenderBidDetailView(generics.RetrieveUpdateDestroyAPIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
 
+        # ✅ BUYER UPDATE LOGIC
         if user.role == 'buyer':
+            # Buyers cannot change bid status
             if new_status:
                 return Response(
                     {'error': 'Buyers cannot change bid status.'},
                     status=status.HTTP_403_FORBIDDEN
                 )
+            
+            # Can only update pending bids
             if bid.status != 'pending':
                 return Response(
                     {'error': f'Cannot update a {bid.status} bid.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            
+            # ✅ FIX: Check if tender is still open
+            today = timezone.now().date()
+            if bid.tender.end_date < today or bid.tender.status == 'closed':
+                return Response(
+                    {'error': 'Cannot update bid. Tender has closed.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Only allow updating bid_amount and message
             allowed_fields = {'bid_amount', 'message'}
             if not set(request.data.keys()).issubset(allowed_fields):
                 return Response(
                     {'error': f'Buyers can only update: {", ".join(allowed_fields)}'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            
             return super().update(request, *args, **kwargs)
 
+        # ✅ MANUFACTURER UPDATE LOGIC (accepting/rejecting bids)
         if new_status == 'accepted':
             if bid.tender.end_date > timezone.now().date():
                 return Response(
@@ -234,13 +274,13 @@ class TenderBidDetailView(generics.RetrieveUpdateDestroyAPIView):
                 tender=bid.tender, status='pending'
             ).exclude(id=bid.id).update(status='rejected')
 
-            tender = bid.tender
+            tender        = bid.tender
             tender.status = 'closed'
             tender.save()
 
             return Response({
-                'message': f'Bid accepted. {rejected_count} other bid(s) rejected. Tender closed.',
-                'bid': TenderBidSerializer(bid).data
+                'message':       f'Bid accepted. {rejected_count} other bid(s) rejected. Tender closed.',
+                'bid':           TenderBidSerializer(bid).data
             })
 
         return super().update(request, *args, **kwargs)

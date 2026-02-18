@@ -19,6 +19,12 @@ class User(AbstractUser):
     )
     phone_number = models.CharField(max_length=15, blank=True, null=True)
     company_name = models.CharField(max_length=255, blank=True, null=True)
+    profile_picture = models.ImageField(
+        upload_to='profile_pictures/',
+        blank=True,
+        null=True,
+        help_text="User profile picture"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

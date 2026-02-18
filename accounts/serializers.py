@@ -81,7 +81,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def validate_phone_number(self, value):
         """Validate phone number format"""
         if value:
-            # Remove spaces and dashes
             cleaned = value.replace(' ', '').replace('-', '').replace('+', '')
             if not cleaned.isdigit():
                 raise serializers.ValidationError("Phone number must contain only digits.")
@@ -90,9 +89,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return value
     
     def validate(self, attrs):
-        """
-        Validate that passwords match
-        """
+        """Validate that passwords match"""
         if attrs['password'] != attrs['password2']:
             raise serializers.ValidationError({
                 "password2": "Passwords do not match."
@@ -100,29 +97,84 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return attrs
     
     def create(self, validated_data):
-        """
-        Create new user with encrypted password
-        """
+        """Create new user with encrypted password"""
         validated_data.pop('password2')
         user = User.objects.create_user(**validated_data)
         return user
 
 
 class UserSerializer(serializers.ModelSerializer):
-    """
-    Serializer for user details
-    """
+    """Serializer for user details (read-only)"""
+    profile_picture = serializers.ImageField(read_only=True)
+    
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'first_name', 'last_name', 
-                  'role', 'phone_number', 'company_name', 'created_at']
-        read_only_fields = ['id', 'created_at']
+                  'role', 'phone_number', 'company_name', 'profile_picture', 'created_at']
+        read_only_fields = ['id', 'username', 'role', 'created_at']
+
+
+class UserUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for updating user profile
+    Supports both text fields and image upload
+    """
+    email = serializers.EmailField(required=False)
+    phone_number = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=15,
+        min_length=10,
+        error_messages={
+            'min_length': 'Phone number must be at least 10 digits.',
+            'max_length': 'Phone number cannot exceed 15 digits.',
+        }
+    )
+    profile_picture = serializers.ImageField(required=False, allow_null=True)
+    
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'email', 'phone_number', 'company_name', 'profile_picture']
+        extra_kwargs = {
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+            'company_name': {'required': False, 'allow_blank': True},
+        }
+    
+    def validate_email(self, value):
+        """Validate email uniqueness (exclude current user)"""
+        user = self.context['request'].user
+        if User.objects.filter(email=value).exclude(id=user.id).exists():
+            raise serializers.ValidationError("This email is already registered.")
+        return value
+    
+    def validate_phone_number(self, value):
+        """Validate phone number format"""
+        if value:
+            cleaned = value.replace(' ', '').replace('-', '').replace('+', '')
+            if not cleaned.isdigit():
+                raise serializers.ValidationError("Phone number must contain only digits.")
+            if len(cleaned) < 10:
+                raise serializers.ValidationError("Phone number must be at least 10 digits.")
+        return value
+    
+    def validate_profile_picture(self, value):
+        """Validate profile picture"""
+        if value:
+            # Check file size (max 1GB)
+            if value.size > 1024 * 1024 * 1024:
+                raise serializers.ValidationError("Image file size cannot exceed 1GB.")
+            
+            # Check file type
+            allowed_types = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp']
+            if value.content_type not in allowed_types:
+                raise serializers.ValidationError("Only JPG, PNG, and WebP images are allowed.")
+        
+        return value
 
 
 class LoginSerializer(serializers.Serializer):
-    """
-    Serializer for user login
-    """
+    """Serializer for user login"""
     username = serializers.CharField(
         required=True,
         error_messages={'required': 'Username is required.'}
