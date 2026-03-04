@@ -11,6 +11,7 @@ class TenderSerializer(serializers.ModelSerializer):
     manufacturer_details = UserSerializer(source='manufacturer', read_only=True)
     bid_count            = serializers.SerializerMethodField()
     is_active            = serializers.BooleanField(read_only=True)
+    display_status       = serializers.SerializerMethodField()
 
     class Meta:
         model  = Tender
@@ -18,8 +19,8 @@ class TenderSerializer(serializers.ModelSerializer):
             'id', 'tender_number', 'manufacturer', 'manufacturer_details',
             'tender_title', 'oil_type', 'quantity', 'quality_grade',
             'quality_score', 'tender_description', 'report_file',
-            'start_date', 'end_date', 'status', 'created_at',
-            'updated_at', 'bid_count', 'is_active'
+            'start_date', 'end_date', 'status', 'display_status',
+            'created_at', 'updated_at', 'bid_count', 'is_active'
         ]
         read_only_fields = [
             'id', 'tender_number', 'manufacturer',
@@ -29,6 +30,36 @@ class TenderSerializer(serializers.ModelSerializer):
 
     def get_bid_count(self, obj):
         return obj.bids.count()
+
+    def get_display_status(self, obj):
+        """
+        Compute a list of status tags to display in the UI.
+
+        Rules:
+          - end_date not yet passed AND status != 'closed'  → ['active']
+          - end_date passed OR status == 'closed':
+              - has an accepted bid                         → ['closed', 'awarded']
+              - has bids but none accepted                  → ['closed']
+              - no bids at all                              → ['closed', 'no bids']
+        """
+        today = timezone.now().date()
+        is_expired = obj.end_date < today or obj.status == 'closed'
+
+        if not is_expired:
+            return ['active']
+
+        # Tender is closed / expired
+        tags = ['closed']
+
+        has_winner = obj.bids.filter(status='accepted').exists()
+        has_bids   = obj.bids.exists()
+
+        if has_winner:
+            tags.append('awarded')
+        elif not has_bids:
+            tags.append('no bids')
+
+        return tags
 
     def validate(self, attrs):
         if attrs.get('end_date') and attrs.get('start_date'):
@@ -46,7 +77,6 @@ class TenderSerializer(serializers.ModelSerializer):
         max_size = 10 * 1024 * 1024  # 10 MB
         if value.size > max_size:
             raise serializers.ValidationError('File size cannot exceed 10MB.')
-
         allowed_extensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpg', 'jpeg']
         ext = value.name.split('.')[-1].lower()
         if ext not in allowed_extensions:
@@ -55,21 +85,16 @@ class TenderSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         tender = super().create(validated_data)
-
-        # ── Run ML prediction after saving the file
         if tender.report_file:
             try:
-                predictor = get_predictor()
-                result    = predictor.predict_quality(tender.report_file.path)
-
+                predictor        = get_predictor()
+                result           = predictor.predict_quality(tender.report_file.path)
                 tender.quality_grade = result['grade']
-                # Cap score at 99.99 to fit DecimalField(max_digits=5, decimal_places=2)
                 tender.quality_score = min(float(result['score']), 99.99)
                 tender.save()
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).error(f"ML prediction error in serializer: {e}")
-
         return tender
 
 

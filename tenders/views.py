@@ -129,10 +129,10 @@ class PredictQualityView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Validate size (max 10 MB)
-        if uploaded_file.size > 10 * 1024 * 1024:
+        # Validate size (max 1 GB)
+        if uploaded_file.size > 1024 * 1024 * 1024:
             return Response(
-                {'error': 'File size cannot exceed 10MB.'},
+                {'error': 'File size cannot exceed 1GB.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
