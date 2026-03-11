@@ -24,7 +24,7 @@ CinnaTend's backend is a Django REST Framework API that powers three core featur
 | Framework | Django 4.x + Django REST Framework |
 | Language | Python 3.x |
 | Database | PostgreSQL (via `psycopg2`) |
-| ML Model | scikit-learn Random Forest (`cinnamon_model_enhanced.pkl`) |
+| ML Model | XGBoost (`cinnamon_model_enhanced.pkl`) |
 | Auth | JWT (via `djangorestframework-simplejwt`) |
 | Media files | Django media serving (`/media/`) |
 | Environment | Python `venv` |
