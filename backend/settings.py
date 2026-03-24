@@ -1,8 +1,10 @@
 # backend/settings.py
 
+import os
 from pathlib import Path
 from datetime import timedelta
 from decouple import config
+import dj_database_url
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -11,7 +13,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-your-secret-key-chang
 
 DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 INSTALLED_APPS = [
@@ -38,6 +40,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',  # CORS middleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -69,17 +72,10 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database - PostgreSQL Configuration
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DATABASE_NAME', default='cinnamon_tender_db'),
-        'USER': config('DATABASE_USER', default='cinnamon_admin'),
-        'PASSWORD': config('DATABASE_PASSWORD', default='secure_password_123'),
-        'HOST': config('DATABASE_HOST', default='localhost'),
-        'PORT': config('DATABASE_PORT', default='5432'),
-        'OPTIONS': {
-            'connect_timeout': 10,
-        },
-    }
+    'default': dj_database_url.config(
+        default=config('DATABASE_URL', default='sqlite:///db.sqlite3'),
+        conn_max_age=600
+    )
 }
 
 # Password validation
@@ -106,6 +102,8 @@ USE_TZ = True
 
 # Static files
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
