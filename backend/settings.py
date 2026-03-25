@@ -154,7 +154,7 @@ ALLOWED_HOSTS = [
 # CORS Settings - Allow React frontend
 CORS_ALLOWED_ORIGINS = [
     "https://backend-production-de7b.up.railway.app",
-    "http://localhost:5173",  # Your local frontend
+    "http://localhost:5174",  # Your local frontend
     "http://localhost:3000",  # If using React
 ]
 
