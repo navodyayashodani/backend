@@ -145,14 +145,17 @@ SIMPLE_JWT = {
     'TOKEN_TYPE_CLAIM': 'token_type',
 }
 
+ALLOWED_HOSTS = [
+    'backend-production-de7b.up.railway.app',
+    'localhost',
+    '127.0.0.1',
+]
+
 # CORS Settings - Allow React frontend
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5174",
-    "http://127.0.0.1:8000",
-    "http://localhost:5173",  # Vite default
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",  # React default
-    "http://127.0.0.1:3000",
+    "https://backend-production-de7b.up.railway.app",
+    "http://localhost:5173",  # Your local frontend
+    "http://localhost:3000",  # If using React
 ]
 
 CORS_ALLOW_CREDENTIALS = True
