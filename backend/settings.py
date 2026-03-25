@@ -154,7 +154,7 @@ ALLOWED_HOSTS = [
 # CORS Settings - Allow React frontend
 CORS_ALLOWED_ORIGINS = [
     "https://backend-production-de7b.up.railway.app",
-    "https://cinna-tend-frontend-n48b.vercel.app/",  # Your deployed frontend
+    "https://cinna-tend-frontend-n48b.vercel.app",  # Your deployed frontend
     "http://localhost:5174",  # Your local frontend
     "http://localhost:3000",  # If using React
     
@@ -168,7 +168,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 CSRF_TRUSTED_ORIGINS = [
     "https://backend-production-de7b.up.railway.app",
-    "https://cinna-tend-frontend-n48b.vercel.app/",
+    "https://cinna-tend-frontend-n48b.vercel.app",
     "http://localhost:5174",
     
 ]
