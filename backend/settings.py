@@ -156,6 +156,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://backend-production-de7b.up.railway.app",
     "http://localhost:5174",  # Your local frontend
     "http://localhost:3000",  # If using React
+    "https://cinna-tend-frontend-n48b.vercel.app/",  # Your deployed frontend
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -167,6 +168,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 CSRF_TRUSTED_ORIGINS = [
     "https://backend-production-de7b.up.railway.app",
     "http://localhost:5174",
+    "https://cinna-tend-frontend-n48b.vercel.app/",
 ]
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
