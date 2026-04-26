@@ -145,13 +145,13 @@ SIMPLE_JWT = {
 
 # ── Hosts & CORS ──────────────────────────────────────────────────────────────
 ALLOWED_HOSTS = [
-    'backend-production-de7b.up.railway.app',
+    'backend-production-7884.up.railway.app',
     'localhost',
     '127.0.0.1',
 ]
 
 CORS_ALLOWED_ORIGINS = [
-    "https://backend-production-de7b.up.railway.app",
+    "https://backend-production-7884.up.railway.app",
     "https://cinna-tend-frontend-n48b.vercel.app",
     "http://localhost:5173",
     "http://localhost:5174",
@@ -184,7 +184,7 @@ CORS_ALLOW_METHODS = [
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://backend-production-de7b.up.railway.app",
+    "https://backend-production-7884.up.railway.app",
     "https://cinna-tend-frontend-n48b.vercel.app",
     "http://localhost:5173",
     "http://localhost:5174",
