@@ -20,5 +20,10 @@ RUN python manage.py collectstatic --no-input
 
 EXPOSE 8000
 
-# ✅ migrate runs automatically before the server starts on every deploy
-CMD python manage.py migrate && gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2
+CMD python manage.py migrate && gunicorn backend.wsgi:application \
+    --bind 0.0.0.0:$PORT \
+    --workers 2 \
+    --timeout 120 \
+    --log-level debug \
+    --capture-output \
+    --enable-stdio-inheritance
