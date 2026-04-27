@@ -39,36 +39,23 @@ class TenderListCreateView(generics.ListCreateAPIView):
             today = timezone.now().date()
             return (
                 Tender.objects
-                # Own tenders — always visible
                 .filter(manufacturer=user)
                 |
-                # Other manufacturers' tenders — only after closing date or if closed
                 Tender.objects
                 .exclude(manufacturer=user)
                 .filter(Q(end_date__lt=today) | Q(status='closed'))
             ).distinct().order_by('-created_at')
 
-        # Buyers (and any other role) see everything
         return Tender.objects.all().order_by('-created_at')
 
     def perform_create(self, serializer):
         if self.request.user.role != 'manufacturer':
             raise permissions.PermissionDenied("Only manufacturers can create tenders.")
 
-        tender = serializer.save(manufacturer=self.request.user)
-
-        # ── ML prediction on uploaded report ──
-        if tender.report_file:
-            try:
-                predictor = get_predictor()
-                result    = predictor.predict_quality(tender.report_file.path)
-
-                tender.quality_grade = result['grade']
-                tender.quality_score = min(float(result['score']), 99.99)
-                tender.save()
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).error(f"Quality prediction error: {e}")
+        # ── Simply save the tender with the manufacturer set.
+        # ── ML prediction is handled inside TenderSerializer.create()
+        # ── so we do NOT call predict_quality here to avoid running it twice.
+        serializer.save(manufacturer=self.request.user)
 
 
 class TenderDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -80,7 +67,6 @@ class TenderDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         user = self.request.user
         if user.role == 'manufacturer':
-            # Can only edit/delete own tenders
             return Tender.objects.filter(manufacturer=user)
         return Tender.objects.all()
 
@@ -120,7 +106,6 @@ class PredictQualityView(APIView):
 
         uploaded_file = request.FILES['file']
 
-        # Validate extension
         allowed_extensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpg', 'jpeg']
         ext = uploaded_file.name.split('.')[-1].lower()
         if ext not in allowed_extensions:
@@ -129,7 +114,6 @@ class PredictQualityView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Validate size (max 1 GB)
         if uploaded_file.size > 1024 * 1024 * 1024:
             return Response(
                 {'error': 'File size cannot exceed 1GB.'},
@@ -220,41 +204,31 @@ class TenderBidDetailView(generics.RetrieveUpdateDestroyAPIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
 
-        # ✅ BUYER UPDATE LOGIC
         if user.role == 'buyer':
-            # Buyers cannot change bid status
             if new_status:
                 return Response(
                     {'error': 'Buyers cannot change bid status.'},
                     status=status.HTTP_403_FORBIDDEN
                 )
-            
-            # Can only update pending bids
             if bid.status != 'pending':
                 return Response(
                     {'error': f'Cannot update a {bid.status} bid.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            # ✅ FIX: Check if tender is still open
             today = timezone.now().date()
             if bid.tender.end_date < today or bid.tender.status == 'closed':
                 return Response(
                     {'error': 'Cannot update bid. Tender has closed.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            # Only allow updating bid_amount and message
             allowed_fields = {'bid_amount', 'message'}
             if not set(request.data.keys()).issubset(allowed_fields):
                 return Response(
                     {'error': f'Buyers can only update: {", ".join(allowed_fields)}'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
             return super().update(request, *args, **kwargs)
 
-        # ✅ MANUFACTURER UPDATE LOGIC (accepting/rejecting bids)
         if new_status == 'accepted':
             if bid.tender.end_date > timezone.now().date():
                 return Response(
@@ -279,8 +253,8 @@ class TenderBidDetailView(generics.RetrieveUpdateDestroyAPIView):
             tender.save()
 
             return Response({
-                'message':       f'Bid accepted. {rejected_count} other bid(s) rejected. Tender closed.',
-                'bid':           TenderBidSerializer(bid).data
+                'message': f'Bid accepted. {rejected_count} other bid(s) rejected. Tender closed.',
+                'bid':     TenderBidSerializer(bid).data
             })
 
         return super().update(request, *args, **kwargs)
