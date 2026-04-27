@@ -8,14 +8,18 @@ from .views import (
 )
 
 urlpatterns = [
-    # Tender endpoints
-    path('tenders/', TenderListCreateView.as_view(), name='tender-list-create'),
-    path('tenders/<int:pk>/', TenderDetailView.as_view(), name='tender-detail'),
+    # ── Static tender paths MUST come before <int:pk> ──────────────────────
+    # Django matches top-to-bottom. If tenders/<int:pk>/ is listed first,
+    # it swallows "next-number" and "predict-quality" and returns 404.
     path('tenders/next-number/', NextTenderNumberView.as_view(), name='next-tender-number'),
     path('tenders/predict-quality/', PredictQualityView.as_view(), name='predict-quality'),
+
+    # ── Dynamic tender paths ────────────────────────────────────────────────
+    path('tenders/', TenderListCreateView.as_view(), name='tender-list-create'),
+    path('tenders/<int:pk>/', TenderDetailView.as_view(), name='tender-detail'),
     path('tenders/<int:tender_id>/bids/', TenderBidsView.as_view(), name='tender-bids'),
 
-    # Bid endpoints
+    # ── Bid endpoints ───────────────────────────────────────────────────────
     path('bids/', TenderBidListCreateView.as_view(), name='bid-list-create'),
     path('bids/<int:pk>/', TenderBidDetailView.as_view(), name='bid-detail'),
     path('bids/<int:bid_id>/accept/', AcceptBidView.as_view(), name='accept-bid'),
