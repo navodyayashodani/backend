@@ -316,7 +316,8 @@ class QualityPredictor:
                 for sline in search_lines:
                     # Primary: grab all decimal numbers (no strict word boundary
                     # so values adjacent to symbols like "78.45|" still match)
-                    nums = re.findall(r'(?<![\d.])(\ d{1,3}\.\d{1,4})(?![\d])', sline)
+                    # CORRECT — no space: (\d
+                    nums = re.findall(r'(?<![\d.])(\d{1,3}\.\d{1,4})(?![\d])', sline)
                     # Fallback: integers only (e.g. "Eugenol 78")
                     if not nums:
                         nums = re.findall(r'\b(\d{1,3})\b', sline)
