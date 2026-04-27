@@ -1,5 +1,6 @@
 # tenders/models.py
 
+import uuid
 from django.db import models
 from django.core.validators import MinValueValidator, FileExtensionValidator
 from accounts.models import User
@@ -8,7 +9,9 @@ import os
 
 def tender_report_path(instance, filename):
     """Generate file path for tender reports"""
-    return f'tender_reports/{instance.tender_number}/{filename}'
+    ext = filename.split('.')[-1].lower()
+    unique_name = f"{uuid.uuid4().hex}.{ext}"
+    return f'tender_reports/{unique_name}'
 
 class Tender(models.Model):
     """
