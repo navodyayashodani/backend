@@ -159,6 +159,7 @@ SIMPLE_JWT = {
 
 # ── Hosts & CORS ──────────────────────────────────────────────────────────────
 ALLOWED_HOSTS = [
+    'backend-production-7884.up.railway.app',
     'localhost',
     '127.0.0.1',
 ]
