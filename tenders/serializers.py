@@ -5,6 +5,11 @@ from .models import Tender, TenderBid
 from accounts.serializers import UserSerializer
 from .ml_model import get_predictor
 from django.utils import timezone
+import tempfile
+import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class TenderSerializer(serializers.ModelSerializer):
@@ -32,25 +37,13 @@ class TenderSerializer(serializers.ModelSerializer):
         return obj.bids.count()
 
     def get_display_status(self, obj):
-        """
-        Compute a list of status tags to display in the UI.
-
-        Rules:
-          - end_date not yet passed AND status != 'closed'  → ['active']
-          - end_date passed OR status == 'closed':
-              - has an accepted bid                         → ['closed', 'awarded']
-              - has bids but none accepted                  → ['closed']
-              - no bids at all                              → ['closed', 'no bids']
-        """
-        today = timezone.now().date()
+        today      = timezone.now().date()
         is_expired = obj.end_date < today or obj.status == 'closed'
 
         if not is_expired:
             return ['active']
 
-        # Tender is closed / expired
-        tags = ['closed']
-
+        tags       = ['closed']
         has_winner = obj.bids.filter(status='accepted').exists()
         has_bids   = obj.bids.exists()
 
@@ -84,17 +77,43 @@ class TenderSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
+        # Grab the file object BEFORE super().create() moves it to storage
+        report_file = validated_data.get('report_file')
+
+        # Save the tender record (Django writes file to media storage here)
         tender = super().create(validated_data)
-        if tender.report_file:
+
+        # Run ML prediction via a local temp file copy.
+        # We do NOT use tender.report_file.path because Railway's ephemeral
+        # filesystem raises NotImplementedError on cloud storage .path() calls.
+        if report_file:
+            ext      = report_file.name.split('.')[-1].lower()
+            tmp_path = None
             try:
-                predictor        = get_predictor()
-                result           = predictor.predict_quality(tender.report_file.path)
+                report_file.seek(0)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{ext}') as tmp:
+                    for chunk in report_file.chunks():
+                        tmp.write(chunk)
+                    tmp_path = tmp.name
+
+                predictor            = get_predictor()
+                result               = predictor.predict_quality(tmp_path)
                 tender.quality_grade = result['grade']
                 tender.quality_score = min(float(result['score']), 99.99)
-                tender.save()
+                tender.save(update_fields=['quality_grade', 'quality_score'])
+                logger.info(
+                    f"ML grade for {tender.tender_number}: "
+                    f"Grade={result['grade']} Score={result['score']}"
+                )
+
             except Exception as e:
-                import logging
-                logging.getLogger(__name__).error(f"ML prediction error in serializer: {e}")
+                # Do NOT crash — tender is saved, grade stays null
+                logger.error(f"ML prediction failed for {tender.tender_number}: {e}")
+
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+
         return tender
 
 
