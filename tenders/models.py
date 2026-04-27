@@ -3,6 +3,7 @@
 from django.db import models
 from django.core.validators import MinValueValidator, FileExtensionValidator
 from accounts.models import User
+from decimal import Decimal
 import os
 
 def tender_report_path(instance, filename):
@@ -58,7 +59,7 @@ class Tender(models.Model):
     quantity = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        validators=[MinValueValidator(0.01)],
+        validators=[MinValueValidator(Decimal('0.01'))],
         help_text="Quantity in liters or kg"
     )
     
@@ -168,7 +169,7 @@ class TenderBid(models.Model):
     bid_amount = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        validators=[MinValueValidator(0.01)],
+        validators=[MinValueValidator(Decimal('0.01'))],
         help_text="Bid amount per unit"
     )
     
